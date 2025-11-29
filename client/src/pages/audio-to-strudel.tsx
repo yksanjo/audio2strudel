@@ -10,6 +10,7 @@ import { NoteTimeline } from "@/components/note-timeline";
 import { CodeOutputCard } from "@/components/code-output-card";
 import { MetadataDisplay } from "@/components/metadata-display";
 import { AnalysisParameters, defaultAnalysisParams, type AnalysisParams } from "@/components/analysis-parameters";
+import { PatternPlayer } from "@/components/pattern-player";
 import type { AnalysisResult, ProcessingStatus as ProcessingStatusType, Note, Chord, StrudelCode } from "@shared/schema";
 
 function detectPitch(frame: Float32Array, sampleRate: number): number {
@@ -598,6 +599,16 @@ export default function AudioToStrudel() {
                   melody={result.melody}
                   chords={result.chords}
                   duration={result.duration}
+                />
+              </section>
+
+              <section>
+                <h2 className="text-lg font-semibold text-foreground mb-4">Preview Pattern</h2>
+                <PatternPlayer
+                  melody={result.melody}
+                  chords={result.chords}
+                  tempo={result.estimatedTempo || 120}
+                  detectedKey={result.detectedKey}
                 />
               </section>
 
