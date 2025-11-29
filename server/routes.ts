@@ -1,16 +1,27 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
+  // API health check endpoint
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", message: "Audio to Strudel API is running" });
+  });
 
-  // use storage to perform CRUD operations on the storage interface
-  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+  // Audio processing stats endpoint (for future analytics)
+  app.get("/api/stats", (_req, res) => {
+    res.json({
+      supportedFormats: ["mp3", "wav", "ogg", "flac", "m4a"],
+      version: "1.0.0",
+      features: {
+        melodyExtraction: true,
+        chordDetection: true,
+        strudelGeneration: true,
+      }
+    });
+  });
 
   return httpServer;
 }
