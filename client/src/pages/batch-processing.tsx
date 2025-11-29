@@ -195,24 +195,29 @@ function generateChords(notes: Note[], key: string): Chord[] {
   return chords;
 }
 
+function formatNoteForStrudel(note: string): string {
+  const match = note.match(/^([A-Ga-g])([#b]?)(\d+)$/);
+  if (!match) return note.toLowerCase();
+  const [, noteName, accidental, octave] = match;
+  const strudelAccidental = accidental === '#' ? 's' : accidental === 'b' ? 'f' : '';
+  return `${noteName.toLowerCase()}${strudelAccidental}${octave}`;
+}
+
 function generateStrudelCode(notes: Note[], chords: Chord[]): { melody: string; chords: string; combined: string } {
-  const melodyPatterns = notes.map(note => {
-    const noteName = note.note.replace(/(\d)/, '@$1');
-    return noteName;
-  }).join(" ");
+  const melodyPatterns = notes.map(note => formatNoteForStrudel(note.note)).join(" ");
   
   const melodyCode = melodyPatterns
-    ? `note("${melodyPatterns}").s("piano")`
-    : `note("~").s("piano")`;
+    ? `note("${melodyPatterns}").sound("piano")`
+    : `note("~").sound("piano")`;
   
   const chordPatterns = chords.map(chord => {
-    const chordNotes = chord.notes.map(n => n.replace(/(\d)/, '@$1')).join(",");
+    const chordNotes = chord.notes.map(n => formatNoteForStrudel(n)).join(",");
     return `[${chordNotes}]`;
   }).join(" ");
   
   const chordCode = chordPatterns
-    ? `note("${chordPatterns}").s("piano").gain(0.6)`
-    : `note("~").s("piano")`;
+    ? `note("${chordPatterns}").sound("piano").gain(0.6)`
+    : `note("~").sound("piano")`;
   
   const combined = `stack(\n  ${melodyCode},\n  ${chordCode}\n)`;
   

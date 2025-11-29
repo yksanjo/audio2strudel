@@ -367,20 +367,38 @@ function extractChords(data: Float32Array, sampleRate: number, duration: number,
   return chords;
 }
 
+function formatNoteForStrudel(note: string): string {
+  const match = note.match(/^([A-Ga-g])([#b]?)(\d+)$/);
+  if (!match) return note.toLowerCase();
+  const [, noteName, accidental, octave] = match;
+  const strudelAccidental = accidental === '#' ? 's' : accidental === 'b' ? 'f' : '';
+  return `${noteName.toLowerCase()}${strudelAccidental}${octave}`;
+}
+
 function generateStrudelCode(melody: Note[], chords: Chord[], tempo: number, timeSignature: string): StrudelCode {
-  const melodyPattern = melody.map(n => n.note).join(" ");
-  const melodyStrudel = `note("${melodyPattern}").sound("piano")`;
+  const melodyPattern = melody.map(n => formatNoteForStrudel(n.note)).join(" ");
+  const melodyStrudel = melody.length > 0 
+    ? `note("${melodyPattern}").sound("piano")`
+    : `note("~").sound("piano")`;
   
-  const chordPattern = chords.map(chord => `<${chord.notes.join(" ")}>`).join(" ");
-  const chordStrudel = `note("${chordPattern}").sound("piano")`;
+  const chordPattern = chords.map(chord => {
+    const chordNotes = chord.notes.map(n => formatNoteForStrudel(n)).join(",");
+    return `[${chordNotes}]`;
+  }).join(" ");
+  const chordStrudel = chords.length > 0
+    ? `note("${chordPattern}").sound("piano")`
+    : `note("~").sound("piano")`;
   
   const [beatsPerBar] = timeSignature.split("/").map(Number);
-  const slowFactor = beatsPerBar === 3 ? 0.75 : beatsPerBar === 6 ? 1.5 : 1;
+  const barsPerCycle = 4;
+  const melodySpeed = melody.length > 0 ? melody.length / (barsPerCycle * beatsPerBar) : 1;
+  const chordSpeed = chords.length > 0 ? chords.length / barsPerCycle : 1;
   
   const combined = `// Tempo: ${tempo} BPM, Time Signature: ${timeSignature}
+// Melody: ${melody.length} notes, Chords: ${chords.length} chords
 stack(
-  ${melodyStrudel}.slow(${(slowFactor * 0.5).toFixed(2)}),
-  ${chordStrudel}.slow(${(slowFactor * 2).toFixed(2)})
+  ${melodyStrudel}.slow(${melodySpeed.toFixed(2)}),
+  ${chordStrudel}.slow(${chordSpeed.toFixed(2)})
 ).cpm(${Math.round(tempo / 4)})`;
 
   return {
