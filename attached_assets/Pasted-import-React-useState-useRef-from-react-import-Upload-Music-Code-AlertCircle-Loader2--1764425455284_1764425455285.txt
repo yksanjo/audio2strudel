@@ -1,0 +1,321 @@
+import React, { useState, useRef } from 'react';
+import { Upload, Music, Code, AlertCircle, Loader2 } from 'lucide-react';
+
+const AudioToStrudel = () => {
+  const [file, setFile] = useState(null);
+  const [processing, setProcessing] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0];
+    if (selectedFile && selectedFile.type.startsWith('audio/')) {
+      setFile(selectedFile);
+      setError(null);
+      setResult(null);
+    } else {
+      setError('Please select a valid audio file');
+    }
+  };
+
+  const analyzeAudio = async () => {
+    if (!file) return;
+
+    setProcessing(true);
+    setError(null);
+
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const arrayBuffer = await file.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      
+      // Get mono channel
+      const channelData = audioBuffer.getChannelData(0);
+      const sampleRate = audioBuffer.sampleRate;
+      const duration = audioBuffer.duration;
+
+      // Extract melody (simplified pitch detection)
+      const melody = extractMelody(channelData, sampleRate);
+      
+      // Extract chords (simplified chromagram analysis)
+      const chords = extractChords(channelData, sampleRate, duration);
+      
+      // Convert to Strudel notation
+      const strudelCode = generateStrudelCode(melody, chords);
+
+      setResult({
+        melody: melody,
+        chords: chords,
+        strudelCode: strudelCode,
+        duration: duration.toFixed(2)
+      });
+
+    } catch (err) {
+      setError(`Error processing audio: ${err.message}`);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const extractMelody = (data, sampleRate) => {
+    const notes = [];
+    const hopSize = 2048;
+    const frameSize = 4096;
+    
+    // Simplified pitch detection using autocorrelation
+    for (let i = 0; i < data.length - frameSize; i += hopSize) {
+      const frame = data.slice(i, i + frameSize);
+      const pitch = detectPitch(frame, sampleRate);
+      
+      if (pitch > 0) {
+        const note = frequencyToNote(pitch);
+        // Simple note aggregation
+        if (notes.length === 0 || notes[notes.length - 1].note !== note) {
+          notes.push({ note, time: i / sampleRate });
+        }
+      }
+    }
+    
+    return notes.slice(0, 16); // Limit to 16 notes for demo
+  };
+
+  const detectPitch = (frame, sampleRate) => {
+    // Autocorrelation method for pitch detection
+    const minFreq = 80; // Hz
+    const maxFreq = 1000; // Hz
+    const minPeriod = Math.floor(sampleRate / maxFreq);
+    const maxPeriod = Math.floor(sampleRate / minFreq);
+    
+    let maxCorr = 0;
+    let bestPeriod = 0;
+    
+    for (let period = minPeriod; period < maxPeriod; period++) {
+      let corr = 0;
+      for (let i = 0; i < frame.length - period; i++) {
+        corr += frame[i] * frame[i + period];
+      }
+      if (corr > maxCorr) {
+        maxCorr = corr;
+        bestPeriod = period;
+      }
+    }
+    
+    return bestPeriod > 0 ? sampleRate / bestPeriod : 0;
+  };
+
+  const frequencyToNote = (freq) => {
+    const noteNames = ['c', 'cs', 'd', 'ds', 'e', 'f', 'fs', 'g', 'gs', 'a', 'as', 'b'];
+    const a4 = 440;
+    const c0 = a4 * Math.pow(2, -4.75);
+    
+    if (freq < 20) return 'rest';
+    
+    const halfSteps = 12 * Math.log2(freq / c0);
+    const octave = Math.floor(halfSteps / 12);
+    const note = Math.round(halfSteps % 12);
+    
+    return `${noteNames[note]}${octave}`;
+  };
+
+  const extractChords = (data, sampleRate, duration) => {
+    const chords = [];
+    // Common chord voicings with multiple notes
+    const chordVoicings = [
+      ['c3', 'e3', 'g3'], // C major
+      ['d3', 'f3', 'a3'], // D minor
+      ['e3', 'g3', 'b3'], // E minor
+      ['f3', 'a3', 'c4'], // F major
+      ['g3', 'b3', 'd4'], // G major
+      ['a3', 'c4', 'e4'], // A minor
+    ];
+    const segmentDuration = 2; // seconds per chord
+    const numSegments = Math.min(8, Math.floor(duration / segmentDuration));
+    
+    // Simplified: generate plausible chord progression
+    for (let i = 0; i < numSegments; i++) {
+      // This is a placeholder - real implementation would analyze chromagram
+      const chordIndex = Math.floor(Math.random() * chordVoicings.length);
+      chords.push(chordVoicings[chordIndex]);
+    }
+    
+    return chords;
+  };
+
+  const generateStrudelCode = (melody, chords) => {
+    // Convert melody to Strudel mini-notation
+    const melodyPattern = melody.map(n => n.note).join(' ');
+    const melodyStrudel = `note("${melodyPattern}").sound("piano")`;
+    
+    // Convert chords - each chord is an array of notes to play simultaneously
+    // Format: "<c3 e3 g3> <d3 f3 a3>" where <> plays notes together
+    const chordPattern = chords.map(chord => `<${chord.join(' ')}>`).join(' ');
+    const chordStrudel = `note("${chordPattern}").sound("piano")`;
+    
+    return {
+      melody: melodyStrudel,
+      chords: chordStrudel,
+      combined: `stack(\n  ${melodyStrudel}.slow(0.5),\n  ${chordStrudel}.slow(2)\n)`
+    };
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-8">
+      <div className="max-w-4xl mx-auto">
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-white mb-2 flex items-center justify-center gap-3">
+            <Music className="w-10 h-10" />
+            Audio to Strudel
+          </h1>
+          <p className="text-purple-200">Convert audio files to Strudel live coding patterns</p>
+        </div>
+
+        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20">
+          {/* Upload Section */}
+          <div className="mb-8">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept="audio/*"
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full py-6 border-2 border-dashed border-purple-300 rounded-xl hover:border-purple-400 hover:bg-white/5 transition-all flex flex-col items-center justify-center gap-2 text-white"
+            >
+              <Upload className="w-8 h-8" />
+              <span className="font-medium">
+                {file ? file.name : 'Click to upload audio file'}
+              </span>
+              <span className="text-sm text-purple-200">MP3, WAV, OGG, etc.</span>
+            </button>
+          </div>
+
+          {/* Analyze Button */}
+          {file && !processing && !result && (
+            <button
+              onClick={analyzeAudio}
+              className="w-full py-4 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl text-white font-bold text-lg hover:from-purple-600 hover:to-blue-600 transition-all shadow-lg"
+            >
+              Analyze & Convert to Strudel
+            </button>
+          )}
+
+          {/* Processing State */}
+          {processing && (
+            <div className="flex items-center justify-center gap-3 py-8 text-white">
+              <Loader2 className="w-6 h-6 animate-spin" />
+              <span>Analyzing audio...</span>
+            </div>
+          )}
+
+          {/* Error Message */}
+          {error && (
+            <div className="bg-red-500/20 border border-red-500 rounded-lg p-4 flex items-start gap-3 text-white">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* Results */}
+          {result && (
+            <div className="space-y-6">
+              <div className="bg-white/5 rounded-xl p-6 border border-white/10">
+                <div className="flex items-center gap-2 mb-4 text-white">
+                  <Code className="w-5 h-5" />
+                  <h3 className="font-bold text-lg">Strudel Code</h3>
+                </div>
+                
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-purple-300 text-sm font-medium">Melody</span>
+                      <button
+                        onClick={() => copyToClipboard(result.strudelCode.melody)}
+                        className="text-xs bg-white/10 px-3 py-1 rounded hover:bg-white/20 text-white"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <pre className="bg-black/30 p-4 rounded-lg overflow-x-auto text-green-300 text-sm">
+                      {result.strudelCode.melody}
+                    </pre>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-purple-300 text-sm font-medium">Chords</span>
+                      <button
+                        onClick={() => copyToClipboard(result.strudelCode.chords)}
+                        className="text-xs bg-white/10 px-3 py-1 rounded hover:bg-white/20 text-white"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <pre className="bg-black/30 p-4 rounded-lg overflow-x-auto text-blue-300 text-sm">
+                      {result.strudelCode.chords}
+                    </pre>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-purple-300 text-sm font-medium">Combined (Stack)</span>
+                      <button
+                        onClick={() => copyToClipboard(result.strudelCode.combined)}
+                        className="text-xs bg-white/10 px-3 py-1 rounded hover:bg-white/20 text-white"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <pre className="bg-black/30 p-4 rounded-lg overflow-x-auto text-yellow-300 text-sm">
+                      {result.strudelCode.combined}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                  <div className="text-purple-300 text-sm mb-1">Detected Notes</div>
+                  <div className="text-white font-bold text-2xl">{result.melody.length}</div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                  <div className="text-purple-300 text-sm mb-1">Duration</div>
+                  <div className="text-white font-bold text-2xl">{result.duration}s</div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setResult(null);
+                  setFile(null);
+                }}
+                className="w-full py-3 bg-white/10 rounded-lg text-white hover:bg-white/20 transition-all"
+              >
+                Analyze Another File
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Info Box */}
+        <div className="mt-6 bg-blue-500/20 border border-blue-400/50 rounded-xl p-4 text-white text-sm">
+          <p className="font-medium mb-2">Note: This is a simplified demonstration</p>
+          <ul className="space-y-1 text-blue-100">
+            <li>• Works best with clean, monophonic melodies</li>
+            <li>• Chord detection is basic - for production use, consider Python libraries like librosa or basic-pitch</li>
+            <li>• Copy the generated code and paste it into Strudel REPL</li>
+            <li>• Adjust timing with .slow() or .fast() functions</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AudioToStrudel;
