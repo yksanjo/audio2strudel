@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Music, Sparkles, AlertCircle, RotateCcw, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { CodeOutputCard } from "@/components/code-output-card";
 import { MetadataDisplay } from "@/components/metadata-display";
 import { AnalysisParameters, defaultAnalysisParams, type AnalysisParams } from "@/components/analysis-parameters";
 import { PatternPlayer } from "@/components/pattern-player";
+import { NoteEditor } from "@/components/note-editor";
 import type { AnalysisResult, ProcessingStatus as ProcessingStatusType, Note, Chord, StrudelCode } from "@shared/schema";
 
 function detectPitch(frame: Float32Array, sampleRate: number): number {
@@ -412,6 +413,32 @@ export default function AudioToStrudel() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [analysisParams, setAnalysisParams] = useState<AnalysisParams>(defaultAnalysisParams);
+  const [editedMelody, setEditedMelody] = useState<Note[] | null>(null);
+  const [editedChords, setEditedChords] = useState<Chord[] | null>(null);
+  
+  const currentMelody = editedMelody ?? result?.melody ?? [];
+  const currentChords = editedChords ?? result?.chords ?? [];
+  
+  const currentStrudelCode = useMemo(() => {
+    if (!result) return null;
+    if (editedMelody === null && editedChords === null) {
+      return result.strudelCode;
+    }
+    return generateStrudelCode(
+      currentMelody,
+      currentChords,
+      result.estimatedTempo || 120,
+      analysisParams.timeSignature
+    );
+  }, [result, editedMelody, editedChords, currentMelody, currentChords, analysisParams.timeSignature]);
+  
+  const handleMelodyChange = useCallback((newMelody: Note[]) => {
+    setEditedMelody(newMelody);
+  }, []);
+  
+  const handleChordsChange = useCallback((newChords: Chord[]) => {
+    setEditedChords(newChords);
+  }, []);
 
   const updateStatus = (step: ProcessingStatusType["step"], progress: number, message: string) => {
     setStatus({ step, progress, message });
@@ -508,6 +535,8 @@ export default function AudioToStrudel() {
     setResult(null);
     setError(null);
     setStatus(null);
+    setEditedMelody(null);
+    setEditedChords(null);
   };
 
   return (
@@ -596,46 +625,58 @@ export default function AudioToStrudel() {
               <section>
                 <h2 className="text-lg font-semibold text-foreground mb-4">Note Timeline</h2>
                 <NoteTimeline 
-                  melody={result.melody}
-                  chords={result.chords}
+                  melody={currentMelody}
+                  chords={currentChords}
                   duration={result.duration}
+                />
+              </section>
+
+              <section>
+                <h2 className="text-lg font-semibold text-foreground mb-4">Edit Notes & Chords</h2>
+                <NoteEditor
+                  melody={currentMelody}
+                  chords={currentChords}
+                  onMelodyChange={handleMelodyChange}
+                  onChordsChange={handleChordsChange}
                 />
               </section>
 
               <section>
                 <h2 className="text-lg font-semibold text-foreground mb-4">Preview Pattern</h2>
                 <PatternPlayer
-                  melody={result.melody}
-                  chords={result.chords}
+                  melody={currentMelody}
+                  chords={currentChords}
                   tempo={result.estimatedTempo || 120}
                   detectedKey={result.detectedKey}
                 />
               </section>
 
-              <section>
-                <h2 className="text-lg font-semibold text-foreground mb-4">Generated Strudel Code</h2>
-                <div className="space-y-4">
-                  <CodeOutputCard
-                    title="Melody"
-                    code={result.strudelCode.melody}
-                    colorClass="bg-chart-1"
-                    description="Single note melody pattern"
-                  />
-                  <CodeOutputCard
-                    title="Chords"
-                    code={result.strudelCode.chords}
-                    colorClass="bg-chart-2"
-                    description="Chord progression pattern"
-                  />
-                  <CodeOutputCard
-                    title="Combined Stack"
-                    code={result.strudelCode.combined}
-                    colorClass="bg-gradient-to-r from-primary to-secondary"
-                    defaultExpanded
-                    description="Full arrangement with melody and chords"
-                  />
-                </div>
-              </section>
+              {currentStrudelCode && (
+                <section>
+                  <h2 className="text-lg font-semibold text-foreground mb-4">Generated Strudel Code</h2>
+                  <div className="space-y-4">
+                    <CodeOutputCard
+                      title="Melody"
+                      code={currentStrudelCode.melody}
+                      colorClass="bg-chart-1"
+                      description="Single note melody pattern"
+                    />
+                    <CodeOutputCard
+                      title="Chords"
+                      code={currentStrudelCode.chords}
+                      colorClass="bg-chart-2"
+                      description="Chord progression pattern"
+                    />
+                    <CodeOutputCard
+                      title="Combined Stack"
+                      code={currentStrudelCode.combined}
+                      colorClass="bg-gradient-to-r from-primary to-secondary"
+                      defaultExpanded
+                      description="Full arrangement with melody and chords"
+                    />
+                  </div>
+                </section>
+              )}
 
               <section className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
                 <Button
