@@ -1,4 +1,4 @@
-import { Music, Clock, Hash, Gauge, FileAudio, Waves } from "lucide-react";
+import { Music, Clock, Hash, Gauge, FileAudio, Waves, Key } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import type { AnalysisResult } from "@shared/schema";
 
@@ -41,23 +41,23 @@ export function MetadataDisplay({ result, fileSize, fileName }: MetadataDisplayP
       bgColor: "bg-chart-2/10",
     },
     {
-      icon: Clock,
-      label: "Duration",
-      value: formatDuration(result.duration),
+      icon: Key,
+      label: "Detected Key",
+      value: result.detectedKey || "N/A",
       color: "text-chart-3",
       bgColor: "bg-chart-3/10",
-    },
-    {
-      icon: Waves,
-      label: "Sample Rate",
-      value: formatSampleRate(result.sampleRate),
-      color: "text-chart-4",
-      bgColor: "bg-chart-4/10",
     },
     {
       icon: Gauge,
       label: "Est. Tempo",
       value: result.estimatedTempo ? `${result.estimatedTempo} BPM` : "N/A",
+      color: "text-chart-4",
+      bgColor: "bg-chart-4/10",
+    },
+    {
+      icon: Clock,
+      label: "Duration",
+      value: formatDuration(result.duration),
       color: "text-chart-5",
       bgColor: "bg-chart-5/10",
     },

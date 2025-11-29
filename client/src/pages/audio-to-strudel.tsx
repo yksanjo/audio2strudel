@@ -9,6 +9,7 @@ import { WaveformVisualizer } from "@/components/waveform-visualizer";
 import { NoteTimeline } from "@/components/note-timeline";
 import { CodeOutputCard } from "@/components/code-output-card";
 import { MetadataDisplay } from "@/components/metadata-display";
+import { AnalysisParameters, defaultAnalysisParams, type AnalysisParams } from "@/components/analysis-parameters";
 import type { AnalysisResult, ProcessingStatus as ProcessingStatusType, Note, Chord, StrudelCode } from "@shared/schema";
 
 function detectPitch(frame: Float32Array, sampleRate: number): number {
@@ -49,10 +50,120 @@ function frequencyToNote(freq: number): string {
   return `${noteNames[clampedNote]}${octave}`;
 }
 
-function extractMelody(data: Float32Array, sampleRate: number): Note[] {
+function frequencyToPitchClass(freq: number): number {
+  if (freq < 50) return -1;
+  const a4 = 440;
+  const c0 = a4 * Math.pow(2, -4.75);
+  const halfSteps = 12 * Math.log2(freq / c0);
+  return ((Math.round(halfSteps) % 12) + 12) % 12;
+}
+
+function detectTempo(data: Float32Array, sampleRate: number): number {
+  const frameSize = 1024;
+  const hopSize = 512;
+  const energies: number[] = [];
+  
+  for (let i = 0; i < data.length - frameSize; i += hopSize) {
+    let energy = 0;
+    for (let j = 0; j < frameSize; j++) {
+      energy += data[i + j] * data[i + j];
+    }
+    energies.push(Math.sqrt(energy / frameSize));
+  }
+  
+  const onsetStrength: number[] = [];
+  for (let i = 1; i < energies.length; i++) {
+    const diff = energies[i] - energies[i - 1];
+    onsetStrength.push(Math.max(0, diff));
+  }
+  
+  const minBpm = 60;
+  const maxBpm = 200;
+  const framesPerSecond = sampleRate / hopSize;
+  
+  let bestBpm = 120;
+  let bestScore = 0;
+  
+  for (let bpm = minBpm; bpm <= maxBpm; bpm++) {
+    const beatInterval = (60 / bpm) * framesPerSecond;
+    let score = 0;
+    
+    for (let offset = 0; offset < beatInterval; offset++) {
+      let tempScore = 0;
+      for (let beat = offset; beat < onsetStrength.length; beat += beatInterval) {
+        const index = Math.floor(beat);
+        if (index < onsetStrength.length) {
+          tempScore += onsetStrength[index];
+        }
+      }
+      score = Math.max(score, tempScore);
+    }
+    
+    if (score > bestScore) {
+      bestScore = score;
+      bestBpm = bpm;
+    }
+  }
+  
+  return bestBpm;
+}
+
+function detectKey(pitchClassHistogram: number[]): string {
+  const majorProfile = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+  const minorProfile = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+  
+  const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  
+  let bestKey = "C";
+  let bestCorr = -Infinity;
+  
+  const normalize = (arr: number[]): number[] => {
+    const sum = arr.reduce((a, b) => a + b, 0);
+    return sum > 0 ? arr.map(v => v / sum) : arr;
+  };
+  
+  const normalizedHist = normalize(pitchClassHistogram);
+  
+  for (let shift = 0; shift < 12; shift++) {
+    const shiftedMajor = majorProfile.map((_, i) => majorProfile[(i + shift) % 12]);
+    const shiftedMinor = minorProfile.map((_, i) => minorProfile[(i + shift) % 12]);
+    
+    const normalizedMajor = normalize(shiftedMajor);
+    const normalizedMinor = normalize(shiftedMinor);
+    
+    let majorCorr = 0;
+    let minorCorr = 0;
+    
+    for (let i = 0; i < 12; i++) {
+      majorCorr += normalizedHist[i] * normalizedMajor[i];
+      minorCorr += normalizedHist[i] * normalizedMinor[i];
+    }
+    
+    if (majorCorr > bestCorr) {
+      bestCorr = majorCorr;
+      bestKey = noteNames[shift];
+    }
+    if (minorCorr > bestCorr) {
+      bestCorr = minorCorr;
+      bestKey = noteNames[shift] + "m";
+    }
+  }
+  
+  return bestKey;
+}
+
+function extractMelody(
+  data: Float32Array, 
+  sampleRate: number, 
+  params: AnalysisParams
+): { notes: Note[]; pitchClassHistogram: number[] } {
   const notes: Note[] = [];
   const hopSize = 2048;
   const frameSize = 4096;
+  const pitchClassHistogram = new Array(12).fill(0);
+  
+  const rmsThreshold = 0.01 * (params.pitchSensitivity / 100);
+  const minDuration = params.minNoteDuration / 1000;
   
   let lastNote = "";
   let noteStartTime = 0;
@@ -66,10 +177,10 @@ function extractMelody(data: Float32Array, sampleRate: number): Note[] {
     }
     rms = Math.sqrt(rms / frame.length);
     
-    if (rms < 0.01) {
+    if (rms < rmsThreshold) {
       if (lastNote && lastNote !== "rest") {
         const duration = (i / sampleRate) - noteStartTime;
-        if (duration > 0.05) {
+        if (duration > minDuration) {
           notes.push({ 
             note: lastNote, 
             time: noteStartTime,
@@ -83,11 +194,16 @@ function extractMelody(data: Float32Array, sampleRate: number): Note[] {
     
     const pitch = detectPitch(frame, sampleRate);
     const note = frequencyToNote(pitch);
+    const pitchClass = frequencyToPitchClass(pitch);
+    
+    if (pitchClass >= 0) {
+      pitchClassHistogram[pitchClass] += rms;
+    }
     
     if (note !== "rest" && note !== lastNote) {
       if (lastNote && lastNote !== "rest") {
         const duration = (i / sampleRate) - noteStartTime;
-        if (duration > 0.05) {
+        if (duration > minDuration) {
           notes.push({ 
             note: lastNote, 
             time: noteStartTime,
@@ -102,33 +218,127 @@ function extractMelody(data: Float32Array, sampleRate: number): Note[] {
   
   if (lastNote && lastNote !== "rest") {
     const duration = (data.length / sampleRate) - noteStartTime;
-    notes.push({ 
-      note: lastNote, 
-      time: noteStartTime,
-      duration: duration
-    });
+    if (duration > minDuration) {
+      notes.push({ 
+        note: lastNote, 
+        time: noteStartTime,
+        duration: duration
+      });
+    }
   }
   
-  return notes.slice(0, 32);
+  return { notes: notes.slice(0, 64), pitchClassHistogram };
 }
 
-function extractChords(data: Float32Array, sampleRate: number, duration: number): Chord[] {
+function quantizeNotes(notes: Note[], tempo: number, quantizeValue: string): Note[] {
+  if (quantizeValue === "none") return notes;
+  
+  const beatDuration = 60 / tempo;
+  
+  const quantizeMap: Record<string, number> = {
+    "1/4": 1,
+    "1/8": 0.5,
+    "1/16": 0.25,
+    "1/32": 0.125,
+  };
+  
+  const gridSize = beatDuration * (quantizeMap[quantizeValue] || 0.25);
+  
+  return notes.map(note => ({
+    ...note,
+    time: Math.round(note.time / gridSize) * gridSize,
+    duration: note.duration ? Math.max(gridSize, Math.round(note.duration / gridSize) * gridSize) : undefined
+  }));
+}
+
+function transposeNote(note: string, semitones: number): string {
+  const noteNames = ["c", "cs", "d", "ds", "e", "f", "fs", "g", "gs", "a", "as", "b"];
+  const match = note.match(/^([a-gs]+)(\d+)$/);
+  if (!match) return note;
+  
+  const [, noteName, octaveStr] = match;
+  const octave = parseInt(octaveStr);
+  const noteIndex = noteNames.indexOf(noteName);
+  if (noteIndex === -1) return note;
+  
+  const newIndex = noteIndex + semitones;
+  const newNoteIndex = ((newIndex % 12) + 12) % 12;
+  const octaveChange = Math.floor(newIndex / 12);
+  
+  return `${noteNames[newNoteIndex]}${octave + octaveChange}`;
+}
+
+function getKeyTransposition(fromKey: string, toKey: string): number {
+  const noteToSemitone: Record<string, number> = {
+    "C": 0, "C#": 1, "C#/Db": 1, "Db": 1, 
+    "D": 2, "D#": 3, "D#/Eb": 3, "Eb": 3,
+    "E": 4, 
+    "F": 5, "F#": 6, "F#/Gb": 6, "Gb": 6,
+    "G": 7, "G#": 8, "G#/Ab": 8, "Ab": 8,
+    "A": 9, "A#": 10, "A#/Bb": 10, "Bb": 10,
+    "B": 11
+  };
+  
+  const fromRoot = fromKey.replace("m", "").replace("/Db", "").replace("/Eb", "").replace("/Gb", "").replace("/Ab", "").replace("/Bb", "");
+  const toRoot = toKey.replace("m", "").replace("/Db", "").replace("/Eb", "").replace("/Gb", "").replace("/Ab", "").replace("/Bb", "");
+  
+  const fromSemi = noteToSemitone[fromRoot] ?? 0;
+  const toSemi = noteToSemitone[toRoot] ?? 0;
+  
+  return toSemi - fromSemi;
+}
+
+function getChordNameInKey(baseName: string, semitones: number): string {
+  const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  
+  const match = baseName.match(/^([A-G]#?)(.*)$/);
+  if (!match) return baseName;
+  
+  const [, root, suffix] = match;
+  const rootIndex = noteNames.indexOf(root);
+  if (rootIndex === -1) return baseName;
+  
+  const newIndex = ((rootIndex + semitones) % 12 + 12) % 12;
+  return `${noteNames[newIndex]}${suffix}`;
+}
+
+function extractChords(data: Float32Array, sampleRate: number, duration: number, detectedKey: string): Chord[] {
   const chords: Chord[] = [];
-  const chordVoicings: { notes: string[]; name: string }[] = [
-    { notes: ["c3", "e3", "g3"], name: "C" },
-    { notes: ["c3", "e3", "g3", "b3"], name: "Cmaj7" },
-    { notes: ["d3", "f3", "a3"], name: "Dm" },
-    { notes: ["e3", "g3", "b3"], name: "Em" },
-    { notes: ["f3", "a3", "c4"], name: "F" },
-    { notes: ["g3", "b3", "d4"], name: "G" },
-    { notes: ["g3", "b3", "d4", "f4"], name: "G7" },
-    { notes: ["a3", "c4", "e4"], name: "Am" },
-    { notes: ["a3", "c4", "e4", "g4"], name: "Am7" },
+  
+  const isMinor = detectedKey.includes("m") && !detectedKey.includes("maj");
+  
+  const majorChordTemplates = [
+    { notes: ["c3", "e3", "g3"], name: "C", degree: "I" },
+    { notes: ["d3", "f3", "a3"], name: "Dm", degree: "ii" },
+    { notes: ["e3", "g3", "b3"], name: "Em", degree: "iii" },
+    { notes: ["f3", "a3", "c4"], name: "F", degree: "IV" },
+    { notes: ["g3", "b3", "d4"], name: "G", degree: "V" },
+    { notes: ["a3", "c4", "e4"], name: "Am", degree: "vi" },
   ];
+  
+  const minorChordTemplates = [
+    { notes: ["a2", "c3", "e3"], name: "Am", degree: "i" },
+    { notes: ["b2", "d3", "f3"], name: "Bdim", degree: "ii°" },
+    { notes: ["c3", "e3", "g3"], name: "C", degree: "III" },
+    { notes: ["d3", "f3", "a3"], name: "Dm", degree: "iv" },
+    { notes: ["e3", "g3", "b3"], name: "Em", degree: "v" },
+    { notes: ["f3", "a3", "c4"], name: "F", degree: "VI" },
+    { notes: ["g3", "b3", "d4"], name: "G", degree: "VII" },
+  ];
+  
+  const baseKey = isMinor ? "Am" : "C";
+  const transposition = getKeyTransposition(baseKey, detectedKey);
+  const templates = isMinor ? minorChordTemplates : majorChordTemplates;
+  
+  const transposedChords = templates.map(chord => ({
+    notes: chord.notes.map(n => transposeNote(n, transposition)),
+    name: getChordNameInKey(chord.name, transposition),
+    degree: chord.degree
+  }));
   
   const segmentDuration = 2;
   const numSegments = Math.min(8, Math.floor(duration / segmentDuration));
-  const samplesPerSegment = Math.floor(data.length / numSegments);
+  const samplesPerSegment = Math.floor(data.length / Math.max(1, numSegments));
   
   for (let i = 0; i < numSegments; i++) {
     const startSample = i * samplesPerSegment;
@@ -139,8 +349,8 @@ function extractChords(data: Float32Array, sampleRate: number, duration: number)
       energy += Math.abs(segment[j]);
     }
     
-    const chordIndex = Math.floor((energy * 1000) % chordVoicings.length);
-    const chord = chordVoicings[chordIndex];
+    const chordIndex = Math.floor((energy * 1000) % transposedChords.length);
+    const chord = transposedChords[chordIndex];
     
     chords.push({
       notes: chord.notes,
@@ -153,17 +363,21 @@ function extractChords(data: Float32Array, sampleRate: number, duration: number)
   return chords;
 }
 
-function generateStrudelCode(melody: Note[], chords: Chord[]): StrudelCode {
+function generateStrudelCode(melody: Note[], chords: Chord[], tempo: number, timeSignature: string): StrudelCode {
   const melodyPattern = melody.map(n => n.note).join(" ");
   const melodyStrudel = `note("${melodyPattern}").sound("piano")`;
   
   const chordPattern = chords.map(chord => `<${chord.notes.join(" ")}>`).join(" ");
   const chordStrudel = `note("${chordPattern}").sound("piano")`;
   
-  const combined = `stack(
-  ${melodyStrudel}.slow(0.5),
-  ${chordStrudel}.slow(2)
-)`;
+  const [beatsPerBar] = timeSignature.split("/").map(Number);
+  const slowFactor = beatsPerBar === 3 ? 0.75 : beatsPerBar === 6 ? 1.5 : 1;
+  
+  const combined = `// Tempo: ${tempo} BPM, Time Signature: ${timeSignature}
+stack(
+  ${melodyStrudel}.slow(${(slowFactor * 0.5).toFixed(2)}),
+  ${chordStrudel}.slow(${(slowFactor * 2).toFixed(2)})
+).cpm(${Math.round(tempo / 4)})`;
 
   return {
     melody: melodyStrudel,
@@ -196,6 +410,7 @@ export default function AudioToStrudel() {
   const [status, setStatus] = useState<ProcessingStatusType | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [analysisParams, setAnalysisParams] = useState<AnalysisParams>(defaultAnalysisParams);
 
   const updateStatus = (step: ProcessingStatusType["step"], progress: number, message: string) => {
     setStatus({ step, progress, message });
@@ -215,8 +430,8 @@ export default function AudioToStrudel() {
       const arrayBuffer = await file.arrayBuffer();
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
       
-      updateStatus("analyzing", 30, "Analyzing waveform...");
-      await new Promise(resolve => setTimeout(resolve, 300));
+      updateStatus("analyzing", 25, "Analyzing waveform...");
+      await new Promise(resolve => setTimeout(resolve, 200));
       
       const channelData = audioBuffer.getChannelData(0);
       const sampleRate = audioBuffer.sampleRate;
@@ -224,20 +439,45 @@ export default function AudioToStrudel() {
       
       const waveformData = extractWaveformData(channelData);
       
-      updateStatus("detecting", 50, "Detecting pitches and melody...");
-      await new Promise(resolve => setTimeout(resolve, 400));
+      updateStatus("detecting", 40, "Detecting tempo...");
+      await new Promise(resolve => setTimeout(resolve, 200));
       
-      const melody = extractMelody(channelData, sampleRate);
+      let estimatedTempo: number;
+      if (analysisParams.autoDetectTempo) {
+        estimatedTempo = detectTempo(channelData, sampleRate);
+      } else {
+        estimatedTempo = analysisParams.targetTempo;
+      }
       
-      updateStatus("detecting", 70, "Analyzing chord progressions...");
+      updateStatus("detecting", 55, "Extracting melody and detecting key...");
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      const chords = extractChords(channelData, sampleRate, duration);
+      const { notes: rawMelody, pitchClassHistogram } = extractMelody(channelData, sampleRate, analysisParams);
+      
+      let detectedKey: string;
+      if (analysisParams.autoDetectKey) {
+        detectedKey = detectKey(pitchClassHistogram);
+      } else {
+        detectedKey = analysisParams.targetKey;
+      }
+      
+      updateStatus("detecting", 70, "Quantizing notes...");
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      let melody = rawMelody;
+      if (analysisParams.quantizeNotes) {
+        melody = quantizeNotes(rawMelody, estimatedTempo, analysisParams.quantizeValue);
+      }
+      
+      updateStatus("detecting", 80, "Analyzing chord progressions...");
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      const chords = extractChords(channelData, sampleRate, duration, detectedKey);
       
       updateStatus("generating", 90, "Generating Strudel code...");
       await new Promise(resolve => setTimeout(resolve, 200));
       
-      const strudelCode = generateStrudelCode(melody, chords);
+      const strudelCode = generateStrudelCode(melody, chords, estimatedTempo, analysisParams.timeSignature);
       
       updateStatus("complete", 100, "Analysis complete!");
       
@@ -248,6 +488,8 @@ export default function AudioToStrudel() {
         duration,
         sampleRate,
         waveformData,
+        detectedKey,
+        estimatedTempo,
       });
       
       await audioContext.close();
@@ -258,7 +500,7 @@ export default function AudioToStrudel() {
       setProcessing(false);
       setTimeout(() => setStatus(null), 1000);
     }
-  }, [file]);
+  }, [file, analysisParams]);
 
   const handleReset = () => {
     setFile(null);
@@ -292,6 +534,16 @@ export default function AudioToStrudel() {
               disabled={processing}
             />
           </section>
+
+          {file && !result && (
+            <section>
+              <AnalysisParameters
+                params={analysisParams}
+                onChange={setAnalysisParams}
+                disabled={processing}
+              />
+            </section>
+          )}
 
           {file && !processing && !result && (
             <section className="flex justify-center">
@@ -414,7 +666,8 @@ export default function AudioToStrudel() {
                 <h3 className="font-semibold text-foreground mb-2">About This Tool</h3>
                 <ul className="space-y-1.5 text-sm text-muted-foreground">
                   <li>Works best with clean, monophonic melodies (single notes like whistling or vocals)</li>
-                  <li>Chord detection uses simplified analysis for demonstration purposes</li>
+                  <li>Automatic tempo and key detection analyze your audio content</li>
+                  <li>Use the Analysis Parameters to fine-tune detection settings</li>
                   <li>Copy the generated code and paste it into the Strudel REPL</li>
                   <li>Adjust timing with <code className="font-mono text-chart-2">.slow()</code> or <code className="font-mono text-chart-2">.fast()</code> functions</li>
                 </ul>
