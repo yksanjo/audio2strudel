@@ -1,3 +1,6 @@
+<img width="1238" height="1422" alt="image" src="https://github.com/user-attachments/assets/4bc5cacf-07b0-4cd8-b3de-97a904d83471" />
+
+
 # Audio to Strudel Converter
 
 Transform audio files into Strudel live coding patterns. Extract melodies, detect chords, and generate ready-to-use notation for live algorithmic music performance.
