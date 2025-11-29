@@ -376,29 +376,51 @@ function formatNoteForStrudel(note: string): string {
 }
 
 function generateStrudelCode(melody: Note[], chords: Chord[], tempo: number, timeSignature: string): StrudelCode {
-  const melodyPattern = melody.map(n => formatNoteForStrudel(n.note)).join(" ");
-  const melodyStrudel = melody.length > 0 
-    ? `note("${melodyPattern}").sound("piano")`
-    : `note("~").sound("piano")`;
+  const [beatsPerBar, noteValue] = timeSignature.split("/").map(Number);
+  const beatDuration = (60 / tempo) * (4 / noteValue);
   
-  const chordPattern = chords.map(chord => {
-    const chordNotes = chord.notes.map(n => formatNoteForStrudel(n)).join(",");
-    return `[${chordNotes}]`;
+  // Generate melody with duration notation
+  const melodyWithDuration = melody.map(note => {
+    const formatted = formatNoteForStrudel(note.note);
+    if (!note.duration) return formatted;
+    
+    const durationBeats = note.duration / beatDuration;
+    if (Math.abs(durationBeats - 0.5) < 0.1) return `${formatted}*0.5`;
+    if (Math.abs(durationBeats - 1) < 0.1) return formatted;
+    if (Math.abs(durationBeats - 2) < 0.1) return `${formatted}*2`;
+    if (Math.abs(durationBeats - 4) < 0.1) return `${formatted}*4`;
+    
+    return formatted;
   }).join(" ");
-  const chordStrudel = chords.length > 0
-    ? `note("${chordPattern}").sound("piano")`
+  
+  const melodyStrudel = melody.length > 0 
+    ? `note("${melodyWithDuration}").sound("piano")`
     : `note("~").sound("piano")`;
   
-  const [beatsPerBar] = timeSignature.split("/").map(Number);
-  const barsPerCycle = 4;
-  const melodySpeed = melody.length > 0 ? melody.length / (barsPerCycle * beatsPerBar) : 1;
-  const chordSpeed = chords.length > 0 ? chords.length / barsPerCycle : 1;
+  // Generate chords with timing
+  const chordWithDuration = chords.map(chord => {
+    const chordNotes = chord.notes.map(n => formatNoteForStrudel(n)).join(",");
+    const formatted = `[${chordNotes}]`;
+    if (!chord.duration) return formatted;
+    
+    const durationBeats = chord.duration / beatDuration;
+    if (Math.abs(durationBeats - 0.5) < 0.1) return `${formatted}*0.5`;
+    if (Math.abs(durationBeats - 1) < 0.1) return formatted;
+    if (Math.abs(durationBeats - 2) < 0.1) return `${formatted}*2`;
+    if (Math.abs(durationBeats - 4) < 0.1) return `${formatted}*4`;
+    
+    return formatted;
+  }).join(" ");
+  
+  const chordStrudel = chords.length > 0
+    ? `note("${chordWithDuration}").sound("piano")`
+    : `note("~").sound("piano")`;
   
   const combined = `// Tempo: ${tempo} BPM, Time Signature: ${timeSignature}
 // Melody: ${melody.length} notes, Chords: ${chords.length} chords
 stack(
-  ${melodyStrudel}.slow(${melodySpeed.toFixed(2)}),
-  ${chordStrudel}.slow(${chordSpeed.toFixed(2)})
+  ${melodyStrudel},
+  ${chordStrudel}
 ).cpm(${Math.round(tempo / 4)})`;
 
   return {
