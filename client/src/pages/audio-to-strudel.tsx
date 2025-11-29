@@ -12,6 +12,7 @@ import { MetadataDisplay } from "@/components/metadata-display";
 import { AnalysisParameters, defaultAnalysisParams, type AnalysisParams } from "@/components/analysis-parameters";
 import { PatternPlayer } from "@/components/pattern-player";
 import { NoteEditor } from "@/components/note-editor";
+import { MidiExport } from "@/components/midi-export";
 import type { AnalysisResult, ProcessingStatus as ProcessingStatusType, Note, Chord, StrudelCode } from "@shared/schema";
 
 function detectPitch(frame: Float32Array, sampleRate: number): number {
@@ -689,6 +690,12 @@ export default function AudioToStrudel() {
                   <RotateCcw className="w-4 h-4" />
                   Analyze Another File
                 </Button>
+                <MidiExport
+                  melody={currentMelody}
+                  chords={currentChords}
+                  tempo={result.estimatedTempo || 120}
+                  fileName={file?.name}
+                />
                 <Button
                   variant="default"
                   size="lg"
