@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
-import { Music, Sparkles, AlertCircle, RotateCcw, ExternalLink } from "lucide-react";
+import { Link } from "wouter";
+import { Music, Sparkles, AlertCircle, RotateCcw, ExternalLink, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -550,10 +551,16 @@ export default function AudioToStrudel() {
           <h1 className="text-5xl font-bold text-foreground mb-4" data-testid="text-title">
             Audio to Strudel
           </h1>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+          <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-4">
             Transform your audio files into Strudel live coding patterns. 
             Extract melodies, detect chords, and generate ready-to-use notation.
           </p>
+          <Link href="/batch" asChild>
+            <Button variant="outline" className="gap-2" data-testid="link-batch-processing">
+              <Layers className="w-4 h-4" />
+              Batch Processing
+            </Button>
+          </Link>
         </header>
 
         <main className="space-y-8">
