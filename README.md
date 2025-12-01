@@ -3,8 +3,8 @@
 
 # Audio to Strudel Converter
 
-[![JavaScript](https://img.shields.io/badge/JavaScript-ES6+-yellow.svg)](https://www.javascript.com/) [![GitHub stars](https://img.shields.io/github/stars/yksanjo/audio2strudel?style=social)](https://github.com/yksanjo/audio2strudel/stargazers) [![GitHub forks](https://img.shields.io/github/forks/yksanjo/audio2strudel.svg)](https://github.com/yksanjo/audio2strudel/network/members) [![GitHub issues](https://img.shields.io/github/issues/yksanjo/audio2strudel.svg)](https://github.com/yksanjo/audio2strudel/issues)
-[![Last commit](https://img.shields.io/github/last-commit/yksanjo/audio2strudel.svg)](https://github.com/yksanjo/audio2strudel/commits/main)
+[![JavaScript](https://img.shields.io/badge/JavaScript-ES6+-yellow.svg)](https://www.javascript.com/) [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/) [![GitHub stars](https://img.shields.io/github/stars/yksanjo/audio2strudel?style=social)](https://github.com/yksanjo/audio2strudel/stargazers) [![GitHub forks](https://img.shields.io/github/forks/yksanjo/audio2strudel.svg)](https://github.com/yksanjo/audio2strudel/network/members)
+[![GitHub issues](https://img.shields.io/github/issues/yksanjo/audio2strudel.svg)](https://github.com/yksanjo/audio2strudel/issues) [![Last commit](https://img.shields.io/github/last-commit/yksanjo/audio2strudel.svg)](https://github.com/yksanjo/audio2strudel/commits/main)
 
 
 Transform audio files into Strudel live coding patterns. Extract melodies, detect chords, and generate ready-to-use notation for live algorithmic music performance.
