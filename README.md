@@ -1,5 +1,12 @@
 # audio2strudel
 
+Production-grade project scaffold focused on reliability, maintainability, and fast onboarding.
+
+[![CI](https://img.shields.io/github/actions/workflow/status/yksanjo/audio2strudel/ci.yml?branch=main&label=ci)](https://github.com/yksanjo/audio2strudel/actions)
+![License](https://img.shields.io/github/license/yksanjo/audio2strudel)
+![Last Commit](https://img.shields.io/github/last-commit/yksanjo/audio2strudel)
+![Repo Size](https://img.shields.io/github/repo-size/yksanjo/audio2strudel)
+
 ## Detailed Description
 
 audio2strudel is maintained as an industry-grade software project with production-ready engineering practices.  
